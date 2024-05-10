@@ -323,13 +323,36 @@ def plot_stl_and_axes(mesh, center, x_axis, y_axis, z_axis, local_maxima, tooth_
     all_colors = np.full((mesh.n_cells,3), [plt.cm.cividis(60)[:3]])  
     unique_colors = plt.cm.get_cmap('hsv', len(tooth_regions))  
     unique_colors = np.random.rand(len(tooth_regions), 3)
+    all_non_black_indices=[]
     for index, colors in enumerate(tooth_regions):
         unique_rows,counts=np.unique(colors.reshape(-1,3),axis=0,return_counts=True)
         non_black_indices = np.where(np.any(colors != unique_rows[np.argmax(counts)], axis=1))[0]
         unique_color = unique_colors[index]
         all_colors[non_black_indices] = unique_color  #
+        all_non_black_indices.append(non_black_indices.tolist())
+    all_non_black_indices=list(np.concatenate(all_non_black_indices).flat)
+    non_black_points =mesh.cell_centers()
+    non_black_points=non_black_points.points
+    non_black_points = non_black_points[all_non_black_indices]
     
+    min_coords = np.min(non_black_points, axis=0)
+    max_coords = np.max(non_black_points, axis=0)
+    x_min, y_min, z_min = min_coords
+    x_max, y_max, z_max = max_coords
+            
+            # Add planes above and below
+
+    above_surface_center = (x_min + x_max) / 2, (y_min + y_max) / 2, z_max
+    below_surface_center = (x_min + x_max) / 2, (y_min + y_max) / 2, z_min
+
+    above_surface = pv.Plane(center=above_surface_center, direction=z_axis, i_size=x_max - x_min, j_size=y_max - y_min)
+    below_surface = pv.Plane(center=below_surface_center, direction=-z_axis, i_size=x_max - x_min, j_size=y_max - y_min)
+    plotter.add_mesh(above_surface, color='cyan', opacity=0.5)
+    plotter.add_mesh(below_surface, color='magenta', opacity=0.5)
+
     ## Quad
+
+
     plotter.add_mesh(grid, color='white', line_width=5, render_lines_as_tubes=True) 
 
     colored_mesh = mesh.copy()
@@ -339,6 +362,7 @@ def plot_stl_and_axes(mesh, center, x_axis, y_axis, z_axis, local_maxima, tooth_
 
     plotter.show()
 
+
 ###MAIN###
 
 stl_filepath = 'C:\\Users\\Tufekcioglu\\Desktop\\dev_clone\\identalfied\\12 year old male.stl'
@@ -347,7 +371,8 @@ mesh = pv.read(stl_filepath)
 center, x_axis, y_axis, z_axis = find_dental_axes(mesh)
 simplified_mesh = simplify_stl(mesh, reduction_factor=1-round(41000/len(mesh.points),2))
 
-
+center, x_axis, y_axis, z_axis = find_dental_model_axes(simplified_mesh) 
+z_axis=-z_axis
 local_maxima = find_peaks_from_center(simplified_mesh, center, z_axis,height_threshold=5.5,radius=0.5)
 local_maxima = filter_peaks_by_horizontal_vertical_variation(local_maxima, center, z_axis, max_horizontal_variation=0.2, max_vertical_variation=0.2)
 tooth_regions=partition_model_into_teeth(simplified_mesh, local_maxima, curvature_threshold=5, radius=30)
