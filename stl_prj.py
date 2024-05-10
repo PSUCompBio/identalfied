@@ -347,8 +347,7 @@ mesh = pv.read(stl_filepath)
 center, x_axis, y_axis, z_axis = find_dental_axes(mesh)
 simplified_mesh = simplify_stl(mesh, reduction_factor=1-round(41000/len(mesh.points),2))
 
-center, x_axis, y_axis, z_axis = find_dental_model_axes(simplified_mesh) 
-z_axis=-z_axis
+
 local_maxima = find_peaks_from_center(simplified_mesh, center, z_axis,height_threshold=5.5,radius=0.5)
 local_maxima = filter_peaks_by_horizontal_vertical_variation(local_maxima, center, z_axis, max_horizontal_variation=0.2, max_vertical_variation=0.2)
 tooth_regions=partition_model_into_teeth(simplified_mesh, local_maxima, curvature_threshold=5, radius=30)
