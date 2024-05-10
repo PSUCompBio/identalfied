@@ -187,7 +187,7 @@ def flood_fill_with_costs(mesh, peak_index, curvature_threshold, radius, global_
         residuals = y - y_pred
         max_residual_index = np.argmax(residuals)
         max_residual_point = (x[max_residual_index], residuals[max_residual_index])
-        smoothed_residuals = lowess(residuals, x, frac=0.2)
+        smoothed_residuals = lowess(residuals, x, frac=0.99)
         max_sm_residual_index = np.argmax(smoothed_residuals[:,1])
         max_sm_residual_point = (x[max_sm_residual_index], smoothed_residuals[max_sm_residual_index,1])
         window_size = len(costlist) // 5
@@ -375,7 +375,7 @@ center, x_axis, y_axis, z_axis = find_dental_model_axes(simplified_mesh)
 z_axis=-z_axis
 local_maxima = find_peaks_from_center(simplified_mesh, center, z_axis,height_threshold=5.5,radius=0.5)
 local_maxima = filter_peaks_by_horizontal_vertical_variation(local_maxima, center, z_axis, max_horizontal_variation=0.2, max_vertical_variation=0.2)
-tooth_regions=partition_model_into_teeth(simplified_mesh, local_maxima, curvature_threshold=5, radius=30)
+tooth_regions=partition_model_into_teeth(simplified_mesh, local_maxima, curvature_threshold=5.51, radius=30)
 
 curve, curve_points= quadratic_generator(local_maxima, center)
 perpendicular_points, perp_list , poiint_list=find_perpendicular_points(curve_points, local_maxima)
