@@ -187,7 +187,7 @@ def flood_fill_with_costs(mesh, peak_index, curvature_threshold, radius, global_
         residuals = y - y_pred
         max_residual_index = np.argmax(residuals)
         max_residual_point = (x[max_residual_index], residuals[max_residual_index])
-        smoothed_residuals = lowess(residuals, x, frac=0.99)
+        smoothed_residuals = lowess(residuals, x, frac=0.99,it=3, delta=0.0,)
         max_sm_residual_index = np.argmax(smoothed_residuals[:,1])
         max_sm_residual_point = (x[max_sm_residual_index], smoothed_residuals[max_sm_residual_index,1])
         window_size = len(costlist) // 5
@@ -213,43 +213,43 @@ def partition_model_into_teeth(mesh, peak_points, curvature_threshold, radius):
     return tooth_regions_colors
 
 
-def determine_regions(tooth_regions, local_maxima ,perp_points,closure_treshold):
-    print("Merging regions")
-    checker=True
-    while checker:    
-        num_regions = len(tooth_regions)
-        main_colors = []
-        non_black_indices_list = []
-        for colors in tooth_regions:
-            unique_colors, counts = np.unique(colors.reshape(-1, 3), axis=0, return_counts=True)
-            main_color = unique_colors[np.argmax(counts)]
-            non_black_indices = np.where(np.any(colors != main_color, axis=1))[0]
-            main_colors.append(main_color)
-            non_black_indices_list.append(non_black_indices)
+def determine_regions_once(tooth_regions, local_maxima, perp_points, closure_threshold):
+    indexlist = []
 
-        indexlist = []
-        for i in range(num_regions):
-            if i in indexlist:
-                continue
-            for j in range(i + 1, num_regions):
-                if j in indexlist:
-                    continue
-                intersection = np.intersect1d(non_black_indices_list[i], non_black_indices_list[j])
-                if len(intersection) > 0:
-                    merged_nonblack=np.unique(np.concatenate((non_black_indices_list[i], non_black_indices_list[j]), axis=None))
-                    tooth_regions[i][merged_nonblack]=main_colors[i]
+    unique_rows_counts = []
+    non_black_indices_list = []
+    for colors in tooth_regions:
+        unique_rows, counts = np.unique(colors.reshape(-1, 3), axis=0, return_counts=True)
+        non_black_indices = np.where(np.any(colors != unique_rows[np.argmax(counts)], axis=1))[0]
+        unique_rows_counts.append((unique_rows, counts))
+        non_black_indices_list.append(non_black_indices)
 
-                    indexlist.append(i)
-        if len(indexlist)>0:
-            indexlist=np.unique(indexlist)      
-            for i in enumerate(reversed(indexlist)):
-                tooth_regions=np.delete(tooth_regions, i[1], 0)
-                local_maxima=np.delete(local_maxima, i[1], 0)
-        else:
-            checker=False
+    for index in tqdm(range(len(tooth_regions)), total=len(tooth_regions), desc="Merging regions"):
+        for index2 in range(index + 1, len(tooth_regions)):
+            if abs(perp_points[index2][1] - perp_points[index][1]) < closure_threshold:
+                if index != index2:
+                    non_black_indices = non_black_indices_list[index]
+                    non_black_indices2 = non_black_indices_list[index2]
 
+                    if len(np.intersect1d(non_black_indices, non_black_indices2)) > 0 and index not in indexlist:
+                        merged_nonblack = np.unique(np.concatenate((non_black_indices, non_black_indices2), axis=None))
+                        for i in range(len(merged_nonblack)):
+                            tooth_regions[index][merged_nonblack[i]] = tooth_regions[index][non_black_indices[1]]
+                        indexlist.append(index2)
+    
+    indexlist = np.unique(indexlist)
+    for i in reversed(indexlist):
+        tooth_regions = np.delete(tooth_regions, i, 0)
+        local_maxima = np.delete(local_maxima, i, 0)
+
+    return tooth_regions, local_maxima, len(indexlist)
+
+def determine_regions(tooth_regions, local_maxima, perp_points, closure_threshold, max_iterations=5):
+    for _ in range(max_iterations):
+        tooth_regions, local_maxima, merged_count = determine_regions_once(tooth_regions, local_maxima, perp_points, closure_threshold)
+        if merged_count == 0:
+            break
     return tooth_regions, local_maxima
-
 
 #Plotter
 
@@ -289,9 +289,7 @@ def find_perpendicular_points(curve_points, peaks):
         perpendicular_points.append((idx, peak_x, peak_y, peak[2], perpendicular_distance))
         perpendicular_list.append((i,idx))
     return perpendicular_points, perpendicular_list, point_list
-
 def plot_stl_and_axes(mesh, center, x_axis, y_axis, z_axis, local_maxima, tooth_regions, addaxis, addplane, addpeaks, grid):
-
     # Generate Mesh
     mesh_actor = pv.PolyData(mesh.points, mesh.faces)
 
@@ -320,28 +318,36 @@ def plot_stl_and_axes(mesh, center, x_axis, y_axis, z_axis, local_maxima, tooth_
         plotter.add_mesh(xz_plane, color='blue', opacity=0.3)
     if addpeaks:
         plotter.add_mesh(pv.PolyData(local_maxima), color='yellow', point_size=10)
-    all_colors = np.full((mesh.n_cells,3), [plt.cm.cividis(60)[:3]])  
+    
+    all_colors = np.full((mesh.n_cells, 3), [plt.cm.cividis(60)[:3]])  
     unique_colors = plt.cm.get_cmap('hsv', len(tooth_regions))  
     unique_colors = np.random.rand(len(tooth_regions), 3)
     all_non_black_indices=[]
     for index, colors in enumerate(tooth_regions):
-        unique_rows,counts=np.unique(colors.reshape(-1,3),axis=0,return_counts=True)
+        unique_rows, counts = np.unique(colors.reshape(-1, 3), axis=0, return_counts=True)
         non_black_indices = np.where(np.any(colors != unique_rows[np.argmax(counts)], axis=1))[0]
         unique_color = unique_colors[index]
         all_colors[non_black_indices] = unique_color  #
         all_non_black_indices.append(non_black_indices.tolist())
-    all_non_black_indices=list(np.concatenate(all_non_black_indices).flat)
-    non_black_points =mesh.cell_centers()
-    non_black_points=non_black_points.points
+    all_non_black_indices = list(np.concatenate(all_non_black_indices).flat)
+
+    # Debugging: Print the types and contents of all_non_black_indices
+    print(f"Type of all_non_black_indices: {type(all_non_black_indices)}")
+    print(f"Contents of all_non_black_indices: {all_non_black_indices[:10]}")  # Print first 10 for brevity
+
+    # Ensure all_non_black_indices contains only integers
+    all_non_black_indices = [int(idx) for idx in all_non_black_indices]
+
+    non_black_points = mesh.cell_centers()
+    non_black_points = non_black_points.points
     non_black_points = non_black_points[all_non_black_indices]
     
     min_coords = np.min(non_black_points, axis=0)
     max_coords = np.max(non_black_points, axis=0)
     x_min, y_min, z_min = min_coords
     x_max, y_max, z_max = max_coords
-            
-            # Add planes above and below
 
+    # Add planes above and below
     above_surface_center = (x_min + x_max) / 2, (y_min + y_max) / 2, z_max
     below_surface_center = (x_min + x_max) / 2, (y_min + y_max) / 2, z_min
 
@@ -350,9 +356,7 @@ def plot_stl_and_axes(mesh, center, x_axis, y_axis, z_axis, local_maxima, tooth_
     plotter.add_mesh(above_surface, color='cyan', opacity=0.5)
     plotter.add_mesh(below_surface, color='magenta', opacity=0.5)
 
-    ## Quad
-
-
+    # Generate plot
     plotter.add_mesh(grid, color='white', line_width=5, render_lines_as_tubes=True) 
 
     colored_mesh = mesh.copy()
@@ -362,37 +366,60 @@ def plot_stl_and_axes(mesh, center, x_axis, y_axis, z_axis, local_maxima, tooth_
 
     plotter.show()
 
+def calculate_blob_costs(reference_points, blob_points):
+
+    costs = np.sqrt(((blob_points[:, None, :] - reference_points[None, :, :]) ** 2).sum(axis=2))
+    return costs
+
+def plot_blob_costs_heatmap(costs):
+
+    plt.figure(figsize=(12, 8))
+    plt.imshow(costs, cmap='viridis', aspect='auto')
+    plt.colorbar(label='Cost')
+    plt.title('Blob Costs Heatmap')
+    plt.xlabel('Tooth Types')
+    plt.ylabel('Blobs')
+    plt.xticks(range(costs.shape[1]), [f'Type {i+1}' for i in range(costs.shape[1])], rotation=90)
+    plt.yticks(range(costs.shape[0]), [f'Blob {i+1}' for i in range(costs.shape[0])])
+    plt.grid(False)  
+    plt.show()
 
 ###MAIN###
+def main():
+    stl_filepath = 'C:\\Users\\Tufekcioglu\\Desktop\\dev_clone\\identalfied\\12 year old male.stl'
+    mesh = pv.read(stl_filepath)
 
-stl_filepath = 'C:\\Users\\Tufekcioglu\\Desktop\\dev_clone\\identalfied\\12 year old male.stl'
-mesh = pv.read(stl_filepath)
+    center, x_axis, y_axis, z_axis = find_dental_axes(mesh)
+    simplified_mesh = simplify_stl(mesh, reduction_factor=1-round(41000/len(mesh.points), 2))
 
-center, x_axis, y_axis, z_axis = find_dental_axes(mesh)
-simplified_mesh = simplify_stl(mesh, reduction_factor=1-round(41000/len(mesh.points),2))
+    center, x_axis, y_axis, z_axis = find_dental_model_axes(simplified_mesh)
+    z_axis = -z_axis
+    local_maxima = find_peaks_from_center(simplified_mesh, center, z_axis, height_threshold=5.5, radius=0.5)
+    local_maxima = filter_peaks_by_horizontal_vertical_variation(local_maxima, center, z_axis, max_horizontal_variation=0.2, max_vertical_variation=0.2)
+    tooth_regions = partition_model_into_teeth(simplified_mesh, local_maxima, curvature_threshold=5.2, radius=30)
 
-center, x_axis, y_axis, z_axis = find_dental_model_axes(simplified_mesh) 
-z_axis=-z_axis
-local_maxima = find_peaks_from_center(simplified_mesh, center, z_axis,height_threshold=5.5,radius=0.5)
-local_maxima = filter_peaks_by_horizontal_vertical_variation(local_maxima, center, z_axis, max_horizontal_variation=0.2, max_vertical_variation=0.2)
-tooth_regions=partition_model_into_teeth(simplified_mesh, local_maxima, curvature_threshold=5.51, radius=30)
+    curve, curve_points = quadratic_generator(local_maxima, center)
+    perpendicular_points, perp_list, poiint_list = find_perpendicular_points(curve_points, local_maxima)
+    perp_list.sort(key=lambda a: a[1])
 
-curve, curve_points= quadratic_generator(local_maxima, center)
-perpendicular_points, perp_list , poiint_list=find_perpendicular_points(curve_points, local_maxima)
-perp_list.sort(key=lambda a: a[1])
+    tooth_regions, local_maxima = determine_regions(tooth_regions, local_maxima, perp_list, 100, max_iterations=5)
+    tooth_regions, local_maxima = determine_regions(tooth_regions, local_maxima, perp_list, 100, max_iterations=5)
+    tooth_regions, local_maxima = determine_regions(tooth_regions, local_maxima, perp_list, 100, max_iterations=5)
+    tooth_regions, local_maxima = determine_regions(tooth_regions, local_maxima, perp_list, 100, max_iterations=5)
 
-tooth_regions, local_maxima =determine_regions(tooth_regions,local_maxima,perp_list,100)
-curve, curve_points= quadratic_generator(local_maxima, center)
-perpendicular_points, perp_list , poiint_list=find_perpendicular_points(curve_points, local_maxima)
+    curve, curve_points = quadratic_generator(local_maxima, center)
+    perpendicular_points, perp_list, poiint_list = find_perpendicular_points(curve_points, local_maxima)
 
-curve = pv.PolyData(poiint_list)
-addaxis= True
-addplane= False
-addpeaks= True
+    curve = pv.PolyData(poiint_list)
+    addaxis = True
+    addplane = False
+    addpeaks = True
 
 
-plot_stl_and_axes(simplified_mesh, center, x_axis, y_axis, z_axis, local_maxima, tooth_regions, addaxis, addplane, addpeaks, curve)
+    plot_stl_and_axes(simplified_mesh, center, x_axis, y_axis, z_axis, local_maxima, tooth_regions, addaxis, addplane, addpeaks, curve)
 
+if __name__ == "__main__":
+    main()
 
 reference_points_upper = np.array([
     # Upper İncisorlar
@@ -414,28 +441,3 @@ reference_points_lower = np.array([
     # Lower Molar
     [-15, 0, -1.5], [-17.5, 0, -1], [15, 0, -1.5], [17.5, 0, -1]
 ])
-
-
-def calculate_blob_costs(reference_points, blob_points):
-
-    costs = np.sqrt(((blob_points[:, None, :] - reference_points[None, :, :]) ** 2).sum(axis=2))
-    return costs
-
-def plot_blob_costs_heatmap(costs):
-
-    plt.figure(figsize=(12, 8))
-    plt.imshow(costs, cmap='viridis', aspect='auto')
-    plt.colorbar(label='Cost')
-    plt.title('Blob Costs Heatmap')
-    plt.xlabel('Tooth Types')
-    plt.ylabel('Blobs')
-    plt.xticks(range(costs.shape[1]), [f'Type {i+1}' for i in range(costs.shape[1])], rotation=90)
-    plt.yticks(range(costs.shape[0]), [f'Blob {i+1}' for i in range(costs.shape[0])])
-    plt.grid(False)  
-    plt.show()
-
-
-costs_upper = calculate_blob_costs(reference_points_upper, local_maxima)
-plot_blob_costs_heatmap(costs_upper)
-costs_lower = calculate_blob_costs(reference_points_lower, local_maxima)
-plot_blob_costs_heatmap(costs_lower)
