@@ -64,7 +64,7 @@ Make sure you have python and blender installed on your machine
 
 1. Clone the repo
    ```sh
-   git clone https://github.com/fridge-png/AutomatedMouthGuardCreation.git
+   git clone https://github.com/PSUCompBio/identalfied.git
    ```
 2. Install Python packages
    ```sh
