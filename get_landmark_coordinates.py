@@ -469,30 +469,23 @@ def main():
         for centroid in centroids:
             if np.isnan(centroid[0]):
                 continue
-            
             landmarks.append(centroid)
-            # centroid = np.array_str(centroid)
-            # centroid = centroid.replace(' ', ',')
-            f.write(f"{np.array2string(centroid)}, \n")
+            f.write(f"{np.array2string(centroid, separator= ',')}\n")
         f.close()
     with open("Outputs/min_coords.txt", "w") as f:
-        for min_coord in min_coords:
+        for index,min_coord in enumerate(min_coords):
             if np.isnan(min_coord[0]):
                 continue
-            
             landmarks.append(min_coord)
-            min_coord = np.array_str(min_coord)
-            min_coord = min_coord.replace(' ', ',')
-            f.write(f"{min_coord}, \n")
+            f.write(f"{np.array2string(min_coord, separator= ',')} \n")
+
         f.close()
     with open("Outputs/max_coords.txt", "w") as f:
-        for max_coord in max_coords:
+        for index,max_coord in enumerate(max_coords):
             if np.isnan(max_coord[0]):
                 continue
             landmarks.append(max_coord)
-            max_coord = np.array_str(max_coord)
-            max_coord = max_coord.replace(' ', ',')
-            f.write(f"{max_coord}, \n")
+            f.write(f"{np.array2string(max_coord, separator= ',')} \n")
         f.close()
 
     # ===============
